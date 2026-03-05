@@ -12,10 +12,10 @@ from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.templates import catalog_response
 
-router = APIRouter()
+router = APIRouter(prefix="/freeleech")
 
 
-@router.get("/")
+@router.get("")
 async def get_freeleech_page(
     db_session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
