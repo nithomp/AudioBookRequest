@@ -15,7 +15,7 @@ from app.util.templates import catalog_response
 router = APIRouter()
 
 
-@router.get("")
+@router.get("/")
 async def get_freeleech_page(
     db_session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
