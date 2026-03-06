@@ -8,35 +8,22 @@
 <SettingsLayout user={{ user }} page="mam" title="Settings - MaM">
 
 <div class="flex flex-col gap-4">
-    <h2 class="text-lg">MyAnonamouse (MaM)</h2>
+    <h2 class="text-lg">MyAnonamouse (MaM) Freeleech</h2>
 
-    <p class="text-sm opacity-70">
-        Configure the MaM session cookie for freeleech browsing. The same session ID
-        is also used by the MaM indexer in <a href="{{ base_url }}/settings/indexers"
-        class="underline">Settings &rsaquo; Indexers</a>.
-    </p>
-
-    {# ── Session ID ── #}
-    <label for="mam-session-id">Session Cookie (mam_id)</label>
-    <form class="join w-full"
-          hx-put="{{ base_url }}/settings/mam/hx-session-id"
-          hx-disabled-elt="#mam-id-btn">
-        <input id="mam-session-id"
-               name="mam_session_id"
-               type="password"
-               {% if mam_session_id_set %}placeholder="●●●●●●●●●●●●●●●●●"{% else %}placeholder="Paste your mam_id cookie value here"{% endif %}
-               class="input join-item w-full"
-               minlength="1"
-               required />
-        <button id="mam-id-btn" class="join-item btn">
-            {% if mam_session_id_set %}Update{% else %}Save{% endif %}
-        </button>
-    </form>
-    <p class="text-xs opacity-60">
-        Find your mam_id cookie by logging in to
-        <a href="https://www.myanonamouse.net" target="_blank" class="underline">myanonamouse.net</a>
-        and copying the value of the <code>mam_id</code> cookie from your browser's DevTools.
-    </p>
+    {# ── Session ID status ── #}
+    <div class="alert {% if mam_session_id_set %}alert-success{% else %}alert-warning{% endif %}">
+        <span>
+            {% if mam_session_id_set %}
+                MaM session ID is configured. The freeleech page is ready to use.
+            {% else %}
+                MaM session ID is not set. Go to
+                <a href="{{ base_url }}/settings/indexers" class="underline font-semibold">
+                    Settings &rsaquo; Indexers &rsaquo; MyAnonamouse
+                </a>
+                and enter your MAM Session ID there. The freeleech page uses the same credential.
+            {% endif %}
+        </span>
+    </div>
 
     <hr class="my-2 border-base-200" />
 

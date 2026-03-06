@@ -9,7 +9,7 @@ from app.internal.mam.config import mam_freeleech_config
 from app.internal.mam.freeleech import flush_freeleech_cache
 from app.internal.models import GroupEnum
 from app.util.db import get_session
-from app.util.templates import catalog_response, catalog_response_toast
+from app.util.templates import catalog_response
 
 router = APIRouter(prefix="/mam")
 
@@ -31,18 +31,6 @@ def read_mam_settings(
         ttl_minutes=ttl_minutes,
         trusted_visible=trusted_visible,
     )
-
-
-@router.put("/hx-session-id", status_code=204)
-def update_mam_session_id(
-    session: Annotated[Session, Depends(get_session)],
-    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
-    mam_session_id: Annotated[str, Form()],
-):
-    _ = admin_user
-    indexer_configuration_cache.set(session, "mam_session_id", mam_session_id)
-    flush_freeleech_cache()
-    return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
 @router.put("/hx-ttl", status_code=204)
