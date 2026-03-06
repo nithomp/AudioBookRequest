@@ -9,6 +9,7 @@ The mam_id session cookie is read from the existing indexer configuration
 """
 
 import json
+import os
 import time
 from datetime import datetime
 from typing import Literal
@@ -21,6 +22,10 @@ from sqlmodel import Session
 from app.internal.indexers.configuration import indexer_configuration_cache
 from app.util.connection import USER_AGENT
 from app.util.log import logger
+
+# Optional HTTP proxy for MaM requests (e.g. route through gluetun VPN).
+# Set ABR_MAM_HTTP_PROXY=http://gluetun:8888 in your environment.
+_MAM_PROXY: str | None = os.environ.get("ABR_MAM_HTTP_PROXY") or None
 
 MAM_BASE_URL = "https://www.myanonamouse.net"
 MAM_SEARCH_PATH = "/tor/js/loadSearchJSONbasic.php"
@@ -231,6 +236,7 @@ async def fetch_mam_freeleech(
             url,
             cookies={"mam_id": mam_id},
             headers={"User-Agent": USER_AGENT},
+            proxy=_MAM_PROXY,
         ) as response:
             if response.status == 403:
                 body = await response.text()

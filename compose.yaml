@@ -47,6 +47,11 @@ services:
       ABR_APP__INIT_ROOT_USERNAME: "${ABR_INIT_ROOT_USERNAME:-}"
       ABR_APP__INIT_ROOT_PASSWORD: "${ABR_INIT_ROOT_PASSWORD:-}"
 
+      # ── MaM freeleech proxy ───────────────────────────────────────
+      # Route MaM API requests through gluetun's HTTP proxy so the
+      # session cookie is valid for the VPN IP. Set to empty to disable.
+      ABR_MAM_HTTP_PROXY: "${ABR_MAM_HTTP_PROXY:-http://gluetun:8888}"
+
       # ── Database – SQLite (default) ────────────────────────────────
       # Path is relative to ABR_APP__CONFIG_DIR, or absolute
       ABR_DB__SQLITE_PATH: "${ABR_DB__SQLITE_PATH:-db.sqlite}"
