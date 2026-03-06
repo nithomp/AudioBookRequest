@@ -70,6 +70,10 @@ services:
     #   postgres:
     #     condition: service_healthy
 
+    networks:
+      - default
+      - mediastack_default
+
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/health"]
       interval: 30s
@@ -98,6 +102,11 @@ services:
   #     timeout: 5s
   #     retries: 5
 
+
+networks:
+  default: {}
+  mediastack_default:
+    external: true
 
 volumes:
   abr-config:
