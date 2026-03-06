@@ -19,6 +19,7 @@ from pydantic import BaseModel, field_validator
 from sqlmodel import Session
 
 from app.internal.indexers.configuration import indexer_configuration_cache
+from app.util.connection import USER_AGENT
 from app.util.log import logger
 
 MAM_BASE_URL = "https://www.myanonamouse.net"
@@ -229,6 +230,7 @@ async def fetch_mam_freeleech(
         async with client_session.get(
             url,
             cookies={"mam_id": mam_id},
+            headers={"User-Agent": USER_AGENT},
         ) as response:
             if response.status == 403:
                 body = await response.text()
