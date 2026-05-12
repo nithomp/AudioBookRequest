@@ -105,23 +105,25 @@ async def _run_freeleech_refresh() -> None:
 async def _freeleech_scheduler_loop() -> None:
     """
     Runs forever as a background asyncio task.
-    Sleeps until 02:00 UTC, then runs the freeleech refresh.
-    MaM freeleech periods are ~2 weeks; daily checks ensure we pick up
-    any new list within hours of it going live, without hammering the APIs.
+    Sleeps until the next Monday at 02:00 UTC, then runs the freeleech refresh.
+    MaM freeleech periods are ~2 weeks so a weekly cadence catches any new
+    list within a week without hammering their servers.
     """
     # Short startup delay — let the app fully initialise first
     await asyncio.sleep(10)
 
     while True:
         now = datetime.now(timezone.utc)
-        next_run = now.replace(hour=2, minute=0, second=0, microsecond=0)
-        if next_run <= now:
-            next_run += timedelta(days=1)
+        # Find the next Monday 02:00 UTC (weekday 0 = Monday)
+        days_until_monday = (7 - now.weekday()) % 7 or 7  # always at least 1 day ahead
+        next_run = (now + timedelta(days=days_until_monday)).replace(
+            hour=2, minute=0, second=0, microsecond=0
+        )
         sleep_secs = (next_run - now).total_seconds()
         logger.info(
             "Freeleech scheduler: next run scheduled",
             next_run_utc=next_run.strftime("%Y-%m-%d %H:%M UTC"),
-            sleep_hours=round(sleep_secs / 3600, 1),
+            sleep_days=round(sleep_secs / 86400, 1),
         )
         await asyncio.sleep(sleep_secs)
         await _run_freeleech_refresh()
