@@ -4,6 +4,19 @@
     ttl_minutes: int,
 #}
 
+{#
+    Pre-compute unique genres across all items for the filter dropdown.
+#}
+{% set _all_genres = [] %}
+{% for item in result.items %}
+    {% for g in item.genres %}
+        {% if g not in _all_genres %}
+            {% set _ = _all_genres.append(g) %}
+        {% endif %}
+    {% endfor %}
+{% endfor %}
+{% set _all_genres = _all_genres | sort %}
+
 <BaseLayout title="MaM Freeleech" user={{ user }}>
 
 <div class="w-screen flex flex-col items-center p-6 sm:p-8 overflow-x-hidden gap-6">
@@ -18,10 +31,12 @@
                     &mdash; last updated {{ result.last_updated_str }}
                     (refreshes every {{ ttl_minutes }} min)
                 {% endif %}
+                {% if result.items %}
+                    &mdash; <span id="fl-total-count">{{ result.items | length }}</span> books
+                {% endif %}
             </p>
         </div>
         <div class="flex gap-2 items-center">
-            {# Auto-refresh toggle #}
             <label class="label cursor-pointer gap-2 text-sm">
                 <span class="label-text opacity-70">Auto-refresh</span>
                 <input id="auto-refresh-toggle"
@@ -29,7 +44,6 @@
                        class="toggle toggle-sm toggle-primary"
                        onchange="toggleAutoRefresh(this.checked)" />
             </label>
-            {# Manual refresh #}
             <a href="?force_refresh=true"
                class="btn btn-ghost btn-square"
                title="Refresh now">
@@ -54,20 +68,28 @@
 
     {# ── Filter bar ── #}
     {% if result.items %}
-        <div class="w-full max-w-7xl flex flex-col sm:flex-row gap-3">
+        <div class="w-full max-w-7xl flex flex-col sm:flex-row gap-3 flex-wrap items-center">
             <input id="fl-search"
                    type="text"
                    placeholder="Filter by title or author…"
                    class="input input-bordered w-full sm:max-w-xs"
-                   oninput="filterRows(this.value)" />
+                   oninput="applyFilters()" />
+            <select id="fl-genre"
+                    class="select select-bordered"
+                    onchange="applyFilters()">
+                <option value="">All genres</option>
+                {% for genre in _all_genres %}
+                    <option value="{{ genre | lower }}">{{ genre }}</option>
+                {% endfor %}
+            </select>
             <select id="fl-sort"
                     class="select select-bordered"
                     onchange="sortRows(this.value)">
                 <option value="date_desc">Newest first</option>
                 <option value="seeders_desc">Most seeded</option>
-                <option value="size_desc">Largest first</option>
-                <option value="size_asc">Smallest first</option>
+                <option value="alpha_asc">A → Z</option>
             </select>
+            <span id="fl-visible-count" class="text-sm opacity-50"></span>
         </div>
     {% endif %}
 
@@ -77,11 +99,9 @@
             <table id="fl-table" class="table table-zebra w-full text-sm">
                 <thead>
                     <tr>
+                        <th class="hidden sm:table-cell w-14"></th>
                         <th>Title</th>
                         <th class="hidden sm:table-cell">Author(s)</th>
-                        <th class="hidden md:table-cell">Narrator(s)</th>
-                        <th>Size</th>
-                        <th>Seeds</th>
                         <th>Type</th>
                         <th class="hidden lg:table-cell">Added</th>
                         <th></th>
@@ -89,23 +109,51 @@
                 </thead>
                 <tbody>
                     {% for item in result.items %}
-                        <tr class="fl-row"
+                        {# Main row — click to expand detail #}
+                        <tr class="fl-row cursor-pointer hover:bg-base-200"
                             data-title="{{ item.title | lower }}"
                             data-authors="{{ item.authors | join(', ') | lower }}"
+                            data-tags="{{ item.genres | join(',') | lower }}"
                             data-seeders="{{ item.seeders }}"
-                            data-size="{{ item.size_bytes }}"
-                            data-added="{{ item.added.isoformat() }}">
+                            data-added="{{ item.added.isoformat() }}"
+                            data-detail-id="fl-detail-{{ loop.index }}"
+                            onclick="toggleDetail(this)">
+
+                            {# Cover thumbnail #}
+                            <td class="hidden sm:table-cell p-1 w-14" onclick="event.stopPropagation()">
+                                {% if item.cover_url %}
+                                    <img src="{{ item.cover_url }}"
+                                         class="w-10 h-14 object-cover rounded shadow"
+                                         loading="lazy"
+                                         alt="" />
+                                {% else %}
+                                    <div class="w-10 h-14 rounded bg-base-300 flex items-center justify-center opacity-30">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                        </svg>
+                                    </div>
+                                {% endif %}
+                            </td>
+
+                            {# Title + genre badges #}
                             <td class="max-w-xs">
-                                <a href="{{ item.torrent_url }}"
-                                   target="_blank"
-                                   class="font-semibold text-primary hover:underline line-clamp-2"
-                                   title="{{ item.title }}">
-                                    {{ item.title }}
-                                </a>
+                                <div class="font-semibold line-clamp-2">{{ item.title }}</div>
                                 {% if item.filetype %}
                                     <div class="opacity-50 text-xs">{{ item.filetype }}</div>
                                 {% endif %}
+                                {% if item.genres %}
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        {% for genre in item.genres[:3] %}
+                                            <span class="badge badge-outline badge-xs opacity-70">{{ genre }}</span>
+                                        {% endfor %}
+                                        {% if item.genres | length > 3 %}
+                                            <span class="badge badge-outline badge-xs opacity-40">+{{ item.genres | length - 3 }}</span>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
                             </td>
+
+                            {# Author(s) #}
                             <td class="hidden sm:table-cell opacity-80">
                                 {% if item.authors %}
                                     <span title="{{ item.authors | join(', ') }}">
@@ -118,89 +166,197 @@
                                     <span class="opacity-40">—</span>
                                 {% endif %}
                             </td>
-                            <td class="hidden md:table-cell opacity-80">
-                                {% if item.narrators %}
-                                    <span title="{{ item.narrators | join(', ') }}">
-                                        {{ item.narrators[:1] | join(', ') }}
-                                        {% if item.narrators | length > 1 %}
-                                            <span class="opacity-50">+{{ item.narrators | length - 1 }}</span>
-                                        {% endif %}
-                                    </span>
-                                {% else %}
-                                    <span class="opacity-40">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="whitespace-nowrap opacity-70">{{ item.size_mb }} MB</td>
-                            <td>
-                                <span class="{% if item.seeders > 5 %}text-success{% elif item.seeders > 0 %}text-warning{% else %}text-error{% endif %} font-semibold">
-                                    {{ item.seeders }}
-                                </span>
-                            </td>
+
+                            {# Freeleech type #}
                             <td>
                                 <span class="badge badge-success badge-sm whitespace-nowrap">
                                     {{ item.freeleech_label }}
                                 </span>
                             </td>
+
+                            {# Added date #}
                             <td class="hidden lg:table-cell opacity-60 whitespace-nowrap">
                                 {{ item.added.strftime('%Y-%m-%d') }}
                             </td>
-                            <td>
-                                {# Request button: opens search pre-filled with this title #}
+
+                            {# Request button #}
+                            <td onclick="event.stopPropagation()">
                                 <a href="{{ base_url }}/search?q={{ item.title }}"
                                    class="btn btn-xs btn-info whitespace-nowrap"
-                                   title="Search for '{{ item.title }}' to request it">
+                                   title="Request '{{ item.title }}'">
                                     <icons.Plus />
                                     Request
                                 </a>
                             </td>
                         </tr>
+
+                        {# Expandable detail row #}
+                        <tr id="fl-detail-{{ loop.index }}" class="hidden">
+                            <td colspan="6" class="bg-base-200 px-6 py-4">
+                                <div class="flex gap-4">
+                                    {% if item.cover_url %}
+                                        <img src="{{ item.cover_url }}"
+                                             class="hidden sm:block w-16 h-24 object-cover rounded shadow flex-shrink-0"
+                                             loading="lazy"
+                                             alt="" />
+                                    {% endif %}
+                                    <div class="flex flex-col gap-2 min-w-0">
+                                        {% if item.genres %}
+                                            <div class="flex flex-wrap gap-1">
+                                                {% for genre in item.genres %}
+                                                    <span class="badge badge-primary badge-sm">{{ genre }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                        <p class="text-sm opacity-70 italic">
+                                            {{ item.description or "No description yet — metadata loads in the background and will appear on next page refresh." }}
+                                        </p>
+                                        <div class="flex gap-2 mt-1 flex-wrap text-xs opacity-60">
+                                            {% if item.narrators %}
+                                                <span>Narrated by {{ item.narrators | join(', ') }}</span>
+                                            {% endif %}
+                                            <span>{{ item.size_mb }} MB</span>
+                                            <span>{{ item.seeders }} seed{{ item.seeders != 1 and 's' or '' }}</span>
+                                        </div>
+                                        <div class="flex gap-2 mt-1 flex-wrap">
+                                            <a href="{{ item.audible_search_url }}"
+                                               class="btn btn-xs btn-ghost opacity-70"
+                                               target="_blank" rel="noopener noreferrer">
+                                                Audible ↗
+                                            </a>
+                                            <a class="btn btn-xs btn-info"
+                                               href="{{ base_url }}/search?q={{ item.title }}">
+                                                <icons.Plus /> Request
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
                     {% endfor %}
                 </tbody>
             </table>
+
+            {# Pagination controls #}
+            <div class="flex items-center justify-center gap-4 py-4">
+                <button id="fl-prev" class="btn btn-sm btn-ghost" onclick="goPage(-1)" disabled>← Prev</button>
+                <span id="fl-page-info" class="text-sm opacity-70"></span>
+                <button id="fl-next" class="btn btn-sm btn-ghost" onclick="goPage(1)">Next →</button>
+            </div>
+
             <p id="fl-no-results" class="text-center opacity-60 py-8 hidden">No results match your filter.</p>
         </div>
 
         <script>
-            let autoRefreshTimer = null;
+        (function () {
+            const TOTAL = {{ result.items | length }};
+            const PAGE_SIZE = 50;
+            let _page = 1;
+            let _rows = [];
 
-            function filterRows(query) {
-                const q = query.toLowerCase();
-                let visible = 0;
-                document.querySelectorAll(".fl-row").forEach(row => {
-                    const title = row.dataset.title || "";
-                    const authors = row.dataset.authors || "";
-                    const match = !q || title.includes(q) || authors.includes(q);
-                    row.style.display = match ? "" : "none";
-                    if (match) visible++;
-                });
-                document.getElementById("fl-no-results").classList.toggle("hidden", visible > 0);
+            function _allRows() {
+                return Array.from(document.querySelectorAll(".fl-row"));
             }
 
-            function sortRows(mode) {
+            function _renderPage() {
+                const total = _rows.length;
+                const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+                _page = Math.min(Math.max(1, _page), pages);
+                const start = (_page - 1) * PAGE_SIZE;
+                const end   = start + PAGE_SIZE;
+
+                _allRows().forEach(r => {
+                    const idx    = _rows.indexOf(r);
+                    const inPage = idx >= start && idx < end;
+                    r.style.display = inPage ? "" : "none";
+                    const dr = document.getElementById(r.dataset.detailId);
+                    if (dr && !inPage) dr.classList.add("hidden");
+                });
+
+                document.getElementById("fl-page-info").textContent =
+                    `Page ${_page} of ${pages} · ${total} book${total !== 1 ? "s" : ""}`;
+                document.getElementById("fl-prev").disabled = _page <= 1;
+                document.getElementById("fl-next").disabled = _page >= pages;
+
+                const noRes = document.getElementById("fl-no-results");
+                if (noRes) noRes.classList.toggle("hidden", total > 0);
+
+                const cnt = document.getElementById("fl-visible-count");
+                if (cnt) cnt.textContent = total < TOTAL
+                    ? `${total} of ${TOTAL} match filter`
+                    : "";
+            }
+
+            window.goPage = function(delta) {
+                _page += delta;
+                _renderPage();
+                document.getElementById("fl-table").scrollIntoView({ behavior: "smooth", block: "start" });
+            };
+
+            // ── Expandable detail row ─────────────────────────────────────
+            window.toggleDetail = function(row) {
+                const detail = document.getElementById(row.dataset.detailId);
+                if (!detail) return;
+                const wasHidden = detail.classList.contains("hidden");
+                document.querySelectorAll("tr[id^='fl-detail-']").forEach(r => r.classList.add("hidden"));
+                if (wasHidden) {
+                    detail.classList.remove("hidden");
+                }
+            };
+
+            // ── Filtering ─────────────────────────────────────────────────
+            window.applyFilters = function() {
+                const q     = (document.getElementById("fl-search").value || "").toLowerCase().trim();
+                const genre = (document.getElementById("fl-genre").value  || "").toLowerCase().trim();
+                _rows = _allRows().filter(row => {
+                    const textOk  = !q     || (row.dataset.title   || "").includes(q)
+                                           || (row.dataset.authors || "").includes(q);
+                    const genreOk = !genre || (row.dataset.tags    || "").split(",")
+                                              .some(t => t.trim() === genre);
+                    return textOk && genreOk;
+                });
+                _page = 1;
+                _renderPage();
+            };
+
+            // ── Sorting ───────────────────────────────────────────────────
+            window.sortRows = function(mode) {
                 const tbody = document.querySelector("#fl-table tbody");
-                const rows = Array.from(tbody.querySelectorAll(".fl-row"));
+                const rows  = _allRows();
                 rows.sort((a, b) => {
-                    if (mode === "seeders_desc") return parseInt(b.dataset.seeders) - parseInt(a.dataset.seeders);
-                    if (mode === "size_desc") return parseInt(b.dataset.size) - parseInt(a.dataset.size);
-                    if (mode === "size_asc") return parseInt(a.dataset.size) - parseInt(b.dataset.size);
+                    if (mode === "seeders_desc") return +b.dataset.seeders - +a.dataset.seeders;
+                    if (mode === "alpha_asc")    return (a.dataset.title || "").localeCompare(b.dataset.title || "");
                     // date_desc (default)
                     return new Date(b.dataset.added) - new Date(a.dataset.added);
                 });
-                rows.forEach(r => tbody.appendChild(r));
-            }
+                rows.forEach(r => {
+                    tbody.appendChild(r);
+                    const dr = document.getElementById(r.dataset.detailId);
+                    if (dr) tbody.appendChild(dr);
+                });
+                const q     = (document.getElementById("fl-search").value || "").toLowerCase().trim();
+                const genre = (document.getElementById("fl-genre").value  || "").toLowerCase().trim();
+                _rows = rows.filter(r => {
+                    const textOk  = !q     || (r.dataset.title   || "").includes(q)
+                                           || (r.dataset.authors || "").includes(q);
+                    const genreOk = !genre || (r.dataset.tags    || "").split(",")
+                                              .some(t => t.trim() === genre);
+                    return textOk && genreOk;
+                });
+                _renderPage();
+            };
 
-            function toggleAutoRefresh(enabled) {
-                if (autoRefreshTimer) {
-                    clearInterval(autoRefreshTimer);
-                    autoRefreshTimer = null;
-                }
-                if (enabled) {
-                    const ttlMs = {{ ttl_minutes }} * 60 * 1000;
-                    autoRefreshTimer = setInterval(() => {
-                        window.location.reload();
-                    }, ttlMs);
-                }
-            }
+            // ── Auto-refresh ──────────────────────────────────────────────
+            let _timer = null;
+            window.toggleAutoRefresh = function(enabled) {
+                clearInterval(_timer); _timer = null;
+                if (enabled) _timer = setInterval(() => location.reload(), {{ ttl_minutes }} * 60000);
+            };
+
+            // ── Init ──────────────────────────────────────────────────────
+            _rows = _allRows();
+            _renderPage();
+        })();
         </script>
 
     {% elif not result.error %}

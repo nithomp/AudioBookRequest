@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -229,6 +230,21 @@ class Indexer(BaseModel, frozen=True):
 class Config(BaseSQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
+
+
+class FreeleechBookMeta(BaseSQLModel, table=True):
+    """
+    Server-side cache of Audible metadata for MaM freeleech books.
+    Populated once per weekly fetch; avoids any client-side API calls.
+    """
+
+    __tablename__ = "freeleech_book_meta"
+
+    lookup_key: str = Field(primary_key=True)  # md5(lower(title)|lower(author))[:16]
+    cover_url: str | None = None
+    description: str | None = None
+    genres_json: str = "[]"            # JSON array of genre strings
+    fetched_at: float = Field(default_factory=time.time)
 
 
 class EventEnum(str, Enum):

@@ -20,7 +20,8 @@ def read_mam_settings(
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     mam_session_id = indexer_configuration_cache.get(session, "mam_session_id")
-    ttl_minutes = mam_freeleech_config.get_ttl_seconds(session) // 60
+    ttl_seconds = mam_freeleech_config.get_ttl_seconds(session)
+    ttl_minutes = ttl_seconds // 60
     trusted_visible = mam_freeleech_config.get_trusted_visible(session)
 
     return catalog_response(

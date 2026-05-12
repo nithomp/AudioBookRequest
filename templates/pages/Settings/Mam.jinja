@@ -37,12 +37,15 @@
                type="number"
                value="{{ ttl_minutes }}"
                min="1"
-               max="1440"
+               max="10080"
                class="input join-item w-32"
                required />
         <button id="mam-ttl-btn" class="join-item btn">Update</button>
     </form>
-    <p class="text-xs opacity-60">How long to cache MaM freeleech results before re-fetching (default: 15 minutes).</p>
+    <p class="text-xs opacity-60">
+        How long to cache MaM freeleech results before re-fetching (default: 10080 minutes = 7 days).
+        Current: {{ (ttl_minutes // 1440) }}d {{ ((ttl_minutes % 1440) // 60) }}h {{ (ttl_minutes % 60) }}m.
+    </p>
 
     <hr class="my-2 border-base-200" />
 

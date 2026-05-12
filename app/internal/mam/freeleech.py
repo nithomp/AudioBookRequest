@@ -10,10 +10,11 @@ The mam_id session cookie is read from the existing indexer configuration
 
 import json
 import os
+import re
 import time
 from datetime import datetime
 from typing import Literal
-from urllib.parse import urlencode, urljoin
+from urllib.parse import quote_plus, urlencode, urljoin
 
 from aiohttp import ClientSession
 from pydantic import BaseModel, field_validator
@@ -50,6 +51,11 @@ class MamFreeleechItem(BaseModel):
     catname: str
     added: datetime
     freeleech_types: list[FreeleechType]
+    cover_url: str | None = None
+    tags: list[str] = []
+    # Enriched fields — populated from Audible metadata cache
+    description: str | None = None
+    genres: list[str] = []
 
     @property
     def size_mb(self) -> float:
@@ -58,6 +64,12 @@ class MamFreeleechItem(BaseModel):
     @property
     def torrent_url(self) -> str:
         return f"{MAM_BASE_URL}/t/{self.id}"
+
+    @property
+    def audible_search_url(self) -> str:
+        """Audible search URL for this title."""
+        query = f"{self.title} {' '.join(self.authors[:1])}".strip()
+        return f"https://www.audible.com/search?keywords={quote_plus(query)}"
 
     @property
     def freeleech_label(self) -> str:
@@ -107,6 +119,48 @@ def _parse_bool_field(value: str | int | bool | None) -> bool:
     return str(value) not in ("0", "false", "")
 
 
+def _is_genre_tag(tag: str) -> bool:
+    """
+    Return True if a MaM tag looks like a genre/category rather than
+    uploader metadata noise.
+
+    MaM uploaders put all sorts of things in tags:
+      - Proper genres: "Mystery", "Police Procedurals", "Science Fiction"
+      - Description blobs: "1 M4b File | 07 Hrs | Released 2026-02-17 | Crime"
+      - Dates: "02-12-26", "2026", "2026-01-01"
+      - Audio specs: "128kbps | 44.1kHz | m4b"
+      - Publisher metadata: "Release Date: February 10", "FORMAT Unabridged"
+
+    We keep only short values that don't contain the above noise patterns.
+    """
+    tag = tag.strip().rstrip(".")
+    if not tag or len(tag) > 36:
+        return False
+    # Pipe-separated blobs (e.g. "07 Hrs | Crime")
+    if "|" in tag or "[" in tag:
+        return False
+    # Key:value metadata (e.g. "Release Date: Feb", "Length: 8 hrs")
+    if ":" in tag:
+        return False
+    # Bare years (e.g. "2026", "2025")
+    if re.fullmatch(r"\d{4}", tag):
+        return False
+    # Date-like starts (e.g. "02-12-26", "2026-01-01", "17/02/2026")
+    if re.match(r"^\d{2}[\-/]", tag) or re.match(r"^\d{4}[\-/]", tag):
+        return False
+    # Audio/technical specs (e.g. "128kbps", "44.1kHz")
+    if re.match(r"^\d+\s*(kbps|hz|khz|mb|gb|hrs?|min)", tag, re.IGNORECASE):
+        return False
+    # Lines starting with numbers that are clearly not genres
+    if re.match(r"^\d+\s+[A-Z]", tag):
+        return False
+    # Obvious metadata keywords at start
+    _META = ("release", "format", "language", "published", "length", "b0", "asin")
+    if any(tag.lower().startswith(kw) for kw in _META):
+        return False
+    return True
+
+
 def _parse_added(added: str | None) -> datetime:
     if not added:
         return datetime.now()
@@ -138,6 +192,23 @@ def _result_to_item(raw: dict) -> MamFreeleechItem | None:  # type: ignore[type-
         if _parse_bool_field(raw.get("vip")):
             freeleech_types.append("vip")
 
+        # Cover image flag: non-zero "cover" field means MaM has art for this torrent.
+        # The actual image is fetched client-side from Google Books (no auth needed).
+        cover_available = bool(raw.get("cover") and str(raw.get("cover")) not in ("0", "false", ""))
+        cover_url: str | None = "/freeleech/cover/{}".format(torrent_id) if cover_available else None
+
+        # Tags: MaM returns a comma-separated list of uploader-supplied tags.
+        # These are very noisy (description blobs, dates, specs), so we filter
+        # to only short, genre-like values.
+        raw_tags = raw.get("tags") or ""
+        if isinstance(raw_tags, list):
+            raw_tag_list = [str(t).strip() for t in raw_tags if str(t).strip()]
+        elif isinstance(raw_tags, str) and raw_tags.strip():
+            raw_tag_list = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        else:
+            raw_tag_list = []
+        tags = [t for t in raw_tag_list if _is_genre_tag(t)]
+
         return MamFreeleechItem(
             id=torrent_id,
             title=title,
@@ -150,6 +221,8 @@ def _result_to_item(raw: dict) -> MamFreeleechItem | None:  # type: ignore[type-
             catname=str(raw.get("catname") or "Audiobook"),
             added=_parse_added(raw.get("added")),
             freeleech_types=freeleech_types,
+            cover_url=cover_url,
+            tags=tags,
         )
     except Exception as e:
         logger.debug("MaM freeleech: failed to parse result", error=str(e), raw=raw)
@@ -221,70 +294,111 @@ async def fetch_mam_freeleech(
         )
         return result
 
-    params = {
+    _PER_PAGE = 100
+    _BASE_PARAMS = {
         "tor[main_cat][]": str(MAM_AUDIOBOOK_CAT),
         "tor[searchType]": "fl",
         "tor[searchIn]": "torrents",
-        "startNumber": "0",
-        "perpage": "100",
+        "perpage": str(_PER_PAGE),
     }
+    _HEADERS = {"User-Agent": USER_AGENT}
+    _COOKIES = {"mam_id": mam_id}
 
-    url = urljoin(MAM_BASE_URL, MAM_SEARCH_PATH + "?" + urlencode(params, doseq=True))
+    raw_items: list[dict] = []  # type: ignore[type-arg]
+    start = 0
+    total_reported = None
 
     try:
-        async with client_session.get(
-            url,
-            cookies={"mam_id": mam_id},
-            headers={"User-Agent": USER_AGENT},
-            proxy=_MAM_PROXY,
-        ) as response:
-            if response.status == 403:
-                body = await response.text()
-                logger.error("MaM freeleech: auth failed (403)", body=body[:200])
-                result = MamFreeleechResult(
-                    items=[],
-                    fetched_at=datetime.now(),
-                    error="MaM session cookie expired or invalid. "
-                    "Update it in Settings > Indexers.",
-                )
-                return result
+        while True:
+            params = {**_BASE_PARAMS, "startNumber": str(start)}
+            url = urljoin(MAM_BASE_URL, MAM_SEARCH_PATH + "?" + urlencode(params, doseq=True))
 
-            if not response.ok:
-                body = await response.text()
-                logger.error(
-                    "MaM freeleech: request failed",
-                    status=response.status,
-                    body=body[:200],
-                )
-                result = MamFreeleechResult(
-                    items=[],
-                    fetched_at=datetime.now(),
-                    error=f"MaM returned HTTP {response.status}. Check your session cookie.",
-                )
-                return result
+            async with client_session.get(
+                url,
+                cookies=_COOKIES,
+                headers=_HEADERS,
+                proxy=_MAM_PROXY,
+            ) as response:
+                if response.status == 403:
+                    body = await response.text()
+                    logger.error("MaM freeleech: auth failed (403)", body=body[:200])
+                    return MamFreeleechResult(
+                        items=[],
+                        fetched_at=datetime.now(),
+                        error="MaM session cookie expired or invalid. "
+                        "Update it in Settings > Indexers.",
+                    )
 
-            json_body = await response.json(content_type=None)  # type: ignore[assignment]
+                if not response.ok:
+                    body = await response.text()
+                    logger.error(
+                        "MaM freeleech: request failed",
+                        status=response.status,
+                        body=body[:200],
+                    )
+                    return MamFreeleechResult(
+                        items=[],
+                        fetched_at=datetime.now(),
+                        error=f"MaM returned HTTP {response.status}. Check your session cookie.",
+                    )
 
-            if isinstance(json_body, dict) and "error" in json_body:
-                err_msg = str(json_body["error"])
-                logger.error("MaM freeleech: API error", error=err_msg)
-                result = MamFreeleechResult(
-                    items=[],
-                    fetched_at=datetime.now(),
-                    error=f"MaM API error: {err_msg}",
-                )
-                return result
+                json_body = await response.json(content_type=None)  # type: ignore[assignment]
 
-            raw_items = json_body.get("data", []) if isinstance(json_body, dict) else []
+                if isinstance(json_body, dict) and "error" in json_body:
+                    err_msg = str(json_body["error"])
+                    logger.error("MaM freeleech: API error", error=err_msg)
+                    return MamFreeleechResult(
+                        items=[],
+                        fetched_at=datetime.now(),
+                        error=f"MaM API error: {err_msg}",
+                    )
+
+                # MaM returns `data` as either a list or a dict keyed by torrent ID
+                raw_data = json_body.get("data", []) if isinstance(json_body, dict) else []
+                if isinstance(raw_data, list):
+                    page_data = raw_data
+                elif isinstance(raw_data, dict):
+                    page_data = list(raw_data.values())
+                else:
+                    page_data = []
+
+                if total_reported is None:
+                    # MaM uses "found" or "total" depending on endpoint version
+                    for _key in ("found", "total", "total_items", "count"):
+                        try:
+                            val = int(json_body.get(_key) or 0)
+                            if val > 0:
+                                total_reported = val
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                    if total_reported is None:
+                        total_reported = 0
+
+            raw_items.extend(page_data)
+            logger.debug(
+                "MaM freeleech: page fetched",
+                start=start,
+                page_count=len(page_data),
+                total_so_far=len(raw_items),
+                total_reported=total_reported,
+            )
+
+            # Stop if we got a short page or have reached the reported total
+            if len(page_data) < _PER_PAGE:
+                break
+            if total_reported and len(raw_items) >= total_reported:
+                break
+
+            start += _PER_PAGE
 
     except Exception as e:
         logger.error("MaM freeleech: exception fetching data", error=str(e))
-        result = MamFreeleechResult(
+        return MamFreeleechResult(
             items=[],
             fetched_at=datetime.now(),
             error=f"Failed to connect to MaM: {e}",
         )
-        return result
 
     items = []
     for raw in raw_items:
@@ -293,6 +407,26 @@ async def fetch_mam_freeleech(
             items.append(item)
 
     logger.info("MaM freeleech: fetched results", count=len(items))
+
+    # Phase 1: apply already-cached Audible metadata synchronously
+    # Phase 2: schedule a background task for any uncached items (non-blocking)
+    try:
+        import asyncio as _asyncio
+        from app.internal.mam.metadata import (  # local import to avoid circular
+            apply_cached_metadata,
+            enrich_background,
+        )
+        needs_enrichment = apply_cached_metadata(items, db_session)
+        if needs_enrichment:
+            logger.info(
+                "Freeleech meta: scheduling background enrichment",
+                count=len(needs_enrichment),
+            )
+            # asyncio.create_task() works here because fetch_mam_freeleech is async
+            _asyncio.create_task(enrich_background(needs_enrichment))
+    except Exception as _meta_exc:
+        logger.warning("Freeleech meta: enrichment setup failed", error=str(_meta_exc))
+
     result = MamFreeleechResult(items=items, fetched_at=datetime.now())
     _freeleech_cache = (time.time(), result)
     return result

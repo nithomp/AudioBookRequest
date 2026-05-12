@@ -14,8 +14,8 @@ class MamFreeleechConfig(StringConfigCache[MamFreeleechConfigKey]):
     """Configuration for the MaM freeleech browse page."""
 
     def get_ttl_seconds(self, session: Session) -> int:
-        """Cache TTL in seconds (default 15 minutes)."""
-        return self.get_int(session, "mam_freeleech_ttl", 15 * 60)
+        """Cache TTL in seconds (default 7 days)."""
+        return self.get_int(session, "mam_freeleech_ttl", 7 * 24 * 60 * 60)
 
     def set_ttl_seconds(self, session: Session, ttl: int):
         self.set_int(session, "mam_freeleech_ttl", ttl)
