@@ -1,7 +1,11 @@
+import asyncio
 import json
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, cast
 from urllib.parse import quote_plus, urlencode
 
+import aiohttp
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware import Middleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -24,6 +28,7 @@ from app.internal.prowlarr.util import ProwlarrMisconfigured
 from app.routers import api, pages
 from app.util.db import get_session
 from app.util.fetch_js import fetch_scripts
+from app.util.log import logger
 from app.util.redirect import BaseUrlRedirectResponse
 from app.util.templates import catalog_response
 from app.util.toast import ToastException
@@ -37,8 +42,107 @@ with next(get_session()) as session:
     clear_old_book_caches(session)
 
 
+# ── Freeleech background scheduler ───────────────────────────────────────────
+
+async def _run_freeleech_refresh() -> None:
+    """
+    Fetch the current MaM freeleech list and warm the Audible metadata cache.
+    New items (not already in FreeleechBookMeta) are enriched via Audible.
+    Items already cached are served instantly with no extra API calls.
+    """
+    from app.internal.mam.config import mam_freeleech_config
+    from app.internal.mam.freeleech import fetch_mam_freeleech
+
+    logger.info("Freeleech scheduler: starting refresh")
+    try:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as client:
+            with next(get_session()) as db:
+                ttl = mam_freeleech_config.get_ttl_seconds(db)
+                result = await fetch_mam_freeleech(
+                    db_session=db,
+                    client_session=client,
+                    ttl_seconds=ttl,
+                    force_refresh=True,
+                )
+
+        if result.error:
+            logger.warning(
+                "Freeleech scheduler: MaM returned an error — will retry tomorrow",
+                error=result.error,
+            )
+            return
+
+        logger.info(
+            "Freeleech scheduler: MaM fetch complete, enriching metadata",
+            count=len(result.items),
+        )
+
+        # Determine which items still need Audible enrichment
+        from app.internal.mam.metadata import apply_cached_metadata, enrich_background
+        with next(get_session()) as db:
+            needs_enrichment = apply_cached_metadata(result.items, db)
+
+        if needs_enrichment:
+            logger.info(
+                "Freeleech scheduler: enriching uncached items via Audible",
+                count=len(needs_enrichment),
+            )
+            # await here — scheduler can afford to wait, users cannot
+            await enrich_background(needs_enrichment)
+        else:
+            logger.info("Freeleech scheduler: all metadata already cached, nothing to enrich")
+
+        logger.info("Freeleech scheduler: nightly refresh complete", total=len(result.items))
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error("Freeleech scheduler: refresh failed", error=str(exc))
+
+
+async def _freeleech_scheduler_loop() -> None:
+    """
+    Runs forever as a background asyncio task.
+    Sleeps until 02:00 UTC, then runs the freeleech refresh.
+    MaM freeleech periods are ~2 weeks; daily checks ensure we pick up
+    any new list within hours of it going live, without hammering the APIs.
+    """
+    # Short startup delay — let the app fully initialise first
+    await asyncio.sleep(10)
+
+    while True:
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        sleep_secs = (next_run - now).total_seconds()
+        logger.info(
+            "Freeleech scheduler: next run scheduled",
+            next_run_utc=next_run.strftime("%Y-%m-%d %H:%M UTC"),
+            sleep_hours=round(sleep_secs / 3600, 1),
+        )
+        await asyncio.sleep(sleep_secs)
+        await _run_freeleech_refresh()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001
+    task = asyncio.create_task(
+        _freeleech_scheduler_loop(), name="freeleech-scheduler"
+    )
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 app = FastAPI(
     title="AudioBookRequest",
+    lifespan=lifespan,
     debug=Settings().app.debug,
     openapi_url="/openapi.json" if Settings().app.openapi_enabled else None,
     description="API for AudiobookRequest",

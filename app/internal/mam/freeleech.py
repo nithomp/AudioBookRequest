@@ -408,24 +408,15 @@ async def fetch_mam_freeleech(
 
     logger.info("MaM freeleech: fetched results", count=len(items))
 
-    # Phase 1: apply already-cached Audible metadata synchronously
-    # Phase 2: schedule a background task for any uncached items (non-blocking)
+    # Apply any already-cached Audible metadata from the DB.
+    # Full enrichment of uncached items is handled by the nightly scheduler
+    # (see _freeleech_scheduler_loop in main.py) so we never block a user
+    # request waiting for Audible API calls.
     try:
-        import asyncio as _asyncio
-        from app.internal.mam.metadata import (  # local import to avoid circular
-            apply_cached_metadata,
-            enrich_background,
-        )
-        needs_enrichment = apply_cached_metadata(items, db_session)
-        if needs_enrichment:
-            logger.info(
-                "Freeleech meta: scheduling background enrichment",
-                count=len(needs_enrichment),
-            )
-            # asyncio.create_task() works here because fetch_mam_freeleech is async
-            _asyncio.create_task(enrich_background(needs_enrichment))
+        from app.internal.mam.metadata import apply_cached_metadata  # avoid circular
+        apply_cached_metadata(items, db_session)
     except Exception as _meta_exc:
-        logger.warning("Freeleech meta: enrichment setup failed", error=str(_meta_exc))
+        logger.warning("Freeleech meta: cache lookup failed", error=str(_meta_exc))
 
     result = MamFreeleechResult(items=items, fetched_at=datetime.now())
     _freeleech_cache = (time.time(), result)
