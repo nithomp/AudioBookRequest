@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${ABR_PORT:-8009}:8000"
+      - "${ABR_PORT:-8001}:8000"
 
     volumes:
       - abr-config:/config   # persists SQLite DB, session secret, and cached data
