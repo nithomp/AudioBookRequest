@@ -34,15 +34,21 @@ _AUDIBLE_CONCURRENCY = asyncio.Semaphore(3)
 
 
 _UNESCAPED_AMP = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)')
+# Tags whose content is raw HTML and will break the XML parser — we don't use them
+_HTML_CONTENT_TAGS = re.compile(
+    r'<(description|body|content|content:encoded)>.*?</\1>',
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def _sanitise_xml(text: str) -> str:
     """
-    Goodreads RSS frequently contains unescaped '&' characters in URLs and
-    descriptions, which are valid HTML but not well-formed XML.  Replace every
-    bare '&' (i.e. one that isn't already the start of a named/numeric entity)
-    with '&amp;' so ElementTree can parse the feed.
+    Goodreads RSS has two XML-breaking issues:
+    1. Unescaped '&' in URLs / titles — replace bare & with &amp;
+    2. <description> / <body> fields contain raw HTML with unclosed tags
+       (e.g. <br>, <img>) — strip their content entirely since we don't use them.
     """
+    text = _HTML_CONTENT_TAGS.sub(r'<\1/>', text)
     return _UNESCAPED_AMP.sub("&amp;", text)
 
 
