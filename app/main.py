@@ -102,6 +102,36 @@ async def _run_freeleech_refresh() -> None:
         logger.error("Freeleech scheduler: refresh failed", error=str(exc))
 
 
+async def _run_goodreads_poll() -> None:
+    """
+    Poll the configured Goodreads shelf RSS and queue any new books for download.
+    Runs alongside the weekly freeleech refresh so both happen Monday 02:00 UTC.
+    """
+    from app.internal.goodreads.poller import poll_goodreads_shelf
+
+    logger.info("Goodreads scheduler: starting poll")
+    try:
+        with next(get_session()) as db:
+            summary = await poll_goodreads_shelf(db)
+        if summary.get("error"):
+            logger.warning(
+                "Goodreads scheduler: poll returned an error",
+                error=summary["error"],
+            )
+        else:
+            logger.info(
+                "Goodreads scheduler: poll complete",
+                queued=summary.get("queued", 0),
+                already_tracked=summary.get("already_tracked", 0),
+                not_found=summary.get("not_found", 0),
+                errors=summary.get("errors", 0),
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error("Goodreads scheduler: poll failed", error=str(exc))
+
+
 async def _freeleech_scheduler_loop() -> None:
     """
     Runs forever as a background asyncio task.
@@ -127,6 +157,7 @@ async def _freeleech_scheduler_loop() -> None:
         )
         await asyncio.sleep(sleep_secs)
         await _run_freeleech_refresh()
+        await _run_goodreads_poll()
 
 
 @asynccontextmanager
@@ -276,7 +307,7 @@ async def throw_toast_exception(
             if "detail" not in parsed or not isinstance(parsed["detail"], str):
                 raise ValueError()
             error_message = cast(str, parsed["detail"])
-        except json.JSONDecodeError, ValueError:
+        except (json.JSONDecodeError, ValueError):
             error_message = f"An error occurred while processing your request. status={response.status_code}"
 
         return await raise_toast(request, ToastException(error_message, type="error"))

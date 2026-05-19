@@ -1,0 +1,155 @@
+{#def
+    user: DetailedUser,
+    rss_url: str,
+    last_polled: str | None,
+    auto_download: bool,
+    queued_books: list,
+#}
+
+<SettingsLayout user={{ user }} page="goodreads" title="Settings - Goodreads">
+
+<div class="flex flex-col gap-4">
+    <h2 class="text-lg">Goodreads Shelf Integration</h2>
+    <p class="text-sm opacity-70">
+        Paste the RSS URL of a Goodreads shelf below. ABR will poll it weekly and
+        automatically queue any books it finds for download via Prowlarr.
+        <br />
+        To find your shelf RSS URL: go to your Goodreads shelf &rarr; click the RSS
+        icon, or use
+        <code class="font-mono text-xs">https://www.goodreads.com/review/list_rss/YOUR_USER_ID?shelf=to-read</code>.
+    </p>
+
+    {# ── RSS URL input ── #}
+    <form class="join w-full"
+          hx-put="{{ base_url }}/settings/goodreads/hx-rss-url"
+          hx-disabled-elt="#gr-url-btn">
+        <input id="gr-rss-url"
+               name="rss_url"
+               type="url"
+               value="{{ rss_url }}"
+               placeholder="https://www.goodreads.com/review/list_rss/…"
+               class="input input-bordered join-item w-full"
+               required />
+        <button id="gr-url-btn" class="join-item btn btn-primary">Save</button>
+    </form>
+
+    {% if not rss_url %}
+        <div class="alert alert-warning">
+            <span>No RSS URL configured yet. Polling is disabled until you add one.</span>
+        </div>
+    {% else %}
+        <div class="alert alert-success">
+            <span>
+                RSS URL is set.
+                {% if last_polled %}
+                    Last polled: {{ last_polled[:19].replace('T', ' ') }} UTC.
+                {% else %}
+                    Not polled yet (will run on the next weekly refresh, or use Poll Now).
+                {% endif %}
+            </span>
+        </div>
+    {% endif %}
+
+    <hr class="my-2 border-base-200" />
+
+    {# ── Auto-download toggle ── #}
+    <div class="flex flex-col gap-1">
+        <h3 class="font-semibold">Auto-download</h3>
+        <form hx-post="{{ base_url }}/settings/goodreads/hx-auto-download"
+              hx-disabled-elt="#gr-dl-btn">
+            <label class="label cursor-pointer justify-start gap-4">
+                <input type="checkbox"
+                       name="auto_download"
+                       value="true"
+                       class="toggle toggle-primary"
+                       {% if auto_download %}checked{% endif %}
+                       onchange="this.form.requestSubmit()" />
+                <span class="label-text">Automatically start download when a book is found</span>
+            </label>
+            <button id="gr-dl-btn" class="hidden" type="submit"></button>
+        </form>
+        <p class="text-xs opacity-60">
+            When enabled, ABR queues a Prowlarr search and downloads the best source as soon
+            as a new Goodreads book is matched on Audible. Requires Prowlarr to be configured
+            and your user group to allow auto-downloads.
+        </p>
+    </div>
+
+    <hr class="my-2 border-base-200" />
+
+    {# ── Poll Now button ── #}
+    <div class="flex flex-col gap-1">
+        <h3 class="font-semibold">Manual poll</h3>
+        <form hx-post="{{ base_url }}/settings/goodreads/hx-poll-now"
+              hx-disabled-elt="#gr-poll-btn">
+            <button id="gr-poll-btn" class="btn btn-outline btn-sm self-start"
+                    {% if not rss_url %}disabled{% endif %}>
+                Poll now
+            </button>
+        </form>
+        <p class="text-xs opacity-60">
+            Immediately fetch your shelf and queue any new books. The page will refresh
+            once the poll completes (usually a few seconds).
+        </p>
+    </div>
+
+    <hr class="my-2 border-base-200" />
+
+    {# ── Queued books table ── #}
+    <h3 class="font-semibold">Tracked books
+        <span class="badge badge-outline badge-sm ml-1">{{ queued_books | length }}</span>
+    </h3>
+
+    {% if queued_books %}
+        <div class="overflow-x-auto">
+            <table class="table table-sm table-zebra w-full text-sm">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Author</th>
+                        <th>Status</th>
+                        <th class="hidden md:table-cell">ASIN</th>
+                        <th class="hidden lg:table-cell">Queued at</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for book in queued_books %}
+                        <tr>
+                            <td class="font-medium max-w-xs truncate" title="{{ book.title }}">
+                                {{ book.title }}
+                            </td>
+                            <td class="opacity-80">{{ book.author or "—" }}</td>
+                            <td>
+                                {% if book.status == "queued" %}
+                                    <span class="badge badge-success badge-sm">Queued</span>
+                                {% elif book.status == "not_found" %}
+                                    <span class="badge badge-warning badge-sm">Not found</span>
+                                {% else %}
+                                    <span class="badge badge-ghost badge-sm">{{ book.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="hidden md:table-cell font-mono text-xs opacity-60">
+                                {% if book.asin %}
+                                    <a href="{{ base_url }}/search?q={{ book.asin }}"
+                                       class="underline opacity-80">{{ book.asin }}</a>
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td class="hidden lg:table-cell opacity-60 whitespace-nowrap">
+                                {{ book.queued_at.strftime('%Y-%m-%d %H:%M') if book.queued_at else "—" }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-sm opacity-60">
+            No books tracked yet. Once a shelf is polled, matched books will appear here.
+        </p>
+    {% endif %}
+
+</div>
+
+</SettingsLayout>

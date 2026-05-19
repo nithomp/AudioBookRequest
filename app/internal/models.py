@@ -247,6 +247,29 @@ class FreeleechBookMeta(BaseSQLModel, table=True):
     fetched_at: float = Field(default_factory=time.time)
 
 
+class GoodreadsQueuedBook(BaseSQLModel, table=True):
+    """
+    Tracks books discovered via the Goodreads shelf RSS poller.
+    One row per Goodreads book_id — prevents duplicate requests across polls.
+    """
+
+    __tablename__ = "goodreads_queued_book"
+
+    goodreads_book_id: str = Field(primary_key=True)
+    title: str
+    author: str
+    queued_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(
+            server_default=func.now(),
+            type_=DateTime,
+            nullable=False,
+        ),
+    )
+    asin: str | None = None          # Populated when matched on Audible
+    status: str = "pending"          # pending | queued | not_found
+
+
 class EventEnum(str, Enum):
     on_new_request = "onNewRequest"
     on_successful_download = "onSuccessfulDownload"

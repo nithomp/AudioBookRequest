@@ -4,6 +4,7 @@ from . import (
     account,
     audiobookshelf,
     download,
+    goodreads,
     indexers,
     mam,
     notification,
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/settings")
 router.include_router(account.router)
 router.include_router(audiobookshelf.router)
 router.include_router(download.router)
+router.include_router(goodreads.router)
 router.include_router(indexers.router)
 router.include_router(mam.router)
 router.include_router(notification.router)
