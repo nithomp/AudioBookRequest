@@ -157,20 +157,38 @@ async def _freeleech_scheduler_loop() -> None:
         )
         await asyncio.sleep(sleep_secs)
         await _run_freeleech_refresh()
+
+
+_GOODREADS_INTERVAL_SECS = 30 * 60  # 30 minutes
+
+
+async def _goodreads_scheduler_loop() -> None:
+    """
+    Polls the Goodreads shelf RSS every 30 minutes.
+    Starts with a short delay to let the app fully initialise.
+    """
+    await asyncio.sleep(15)
+
+    while True:
         await _run_goodreads_poll()
+        await asyncio.sleep(_GOODREADS_INTERVAL_SECS)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
-    task = asyncio.create_task(
+    freeleech_task = asyncio.create_task(
         _freeleech_scheduler_loop(), name="freeleech-scheduler"
     )
+    goodreads_task = asyncio.create_task(
+        _goodreads_scheduler_loop(), name="goodreads-scheduler"
+    )
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for task in (freeleech_task, goodreads_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

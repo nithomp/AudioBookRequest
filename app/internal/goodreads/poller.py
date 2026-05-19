@@ -9,6 +9,7 @@ No Goodreads API key required — only the public RSS feed URL.
 """
 
 import asyncio
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -32,13 +33,26 @@ _AUDIBLE_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _AUDIBLE_CONCURRENCY = asyncio.Semaphore(3)
 
 
+_UNESCAPED_AMP = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)')
+
+
+def _sanitise_xml(text: str) -> str:
+    """
+    Goodreads RSS frequently contains unescaped '&' characters in URLs and
+    descriptions, which are valid HTML but not well-formed XML.  Replace every
+    bare '&' (i.e. one that isn't already the start of a named/numeric entity)
+    with '&amp;' so ElementTree can parse the feed.
+    """
+    return _UNESCAPED_AMP.sub("&amp;", text)
+
+
 def _parse_items(xml_text: str) -> list[dict]:
     """
     Parse an RSS feed and return a list of dicts with book_id, title, author.
     Handles both <book_id> at item level and the nested <book><id> variant.
     """
     try:
-        root = ET.fromstring(xml_text)
+        root = ET.fromstring(_sanitise_xml(xml_text))
     except ET.ParseError as exc:
         logger.error("Goodreads poller: failed to parse RSS XML", error=str(exc))
         return []
