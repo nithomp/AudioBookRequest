@@ -25,12 +25,12 @@
 {% endif %}
 <div class="flex items-start justify-center p-2 md:p-4 relative">
     <main class="flex flex-col w-[90%] md:w-3/4 max-w-160 gap-4 gap-y-8 pb-40">
-        {% if user.is_admin() %}
-            <div role="tablist" class="tabs tabs-box">
-                <a preload
-                   href="{{ base_url }}/settings/account"
-                   role="tab"
-                   class="tab {% if page=='account' %}tab-active{% endif %}">Account</a>
+        <div role="tablist" class="tabs tabs-box">
+            <a preload
+               href="{{ base_url }}/settings/account"
+               role="tab"
+               class="tab {% if page=='account' %}tab-active{% endif %}">Account</a>
+            {% if user.is_admin() %}
                 <a preload
                    href="{{ base_url }}/settings/users"
                    role="tab"
@@ -63,12 +63,12 @@
                    href="{{ base_url }}/settings/mam"
                    role="tab"
                    class="tab {% if page=='mam' %}tab-active{% endif %}">MaM</a>
-                <a preload
-                   href="{{ base_url }}/settings/goodreads"
-                   role="tab"
-                   class="tab {% if page=='goodreads' %}tab-active{% endif %}">Goodreads</a>
-            </div>
-        {% endif %}
+            {% endif %}
+            <a preload
+               href="{{ base_url }}/settings/goodreads"
+               role="tab"
+               class="tab {% if page=='goodreads' %}tab-active{% endif %}">Goodreads</a>
+        </div>
 
         {{ content }}
 

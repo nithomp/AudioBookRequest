@@ -107,25 +107,11 @@ async def _run_goodreads_poll() -> None:
     Poll the configured Goodreads shelf RSS and queue any new books for download.
     Runs alongside the weekly freeleech refresh so both happen Monday 02:00 UTC.
     """
-    from app.internal.goodreads.poller import poll_goodreads_shelf
+    from app.internal.goodreads.poller import poll_all_users as poll_goodreads_shelf
 
-    logger.info("Goodreads scheduler: starting poll")
+    logger.info("Goodreads scheduler: starting poll for all users")
     try:
-        with next(get_session()) as db:
-            summary = await poll_goodreads_shelf(db)
-        if summary.get("error"):
-            logger.warning(
-                "Goodreads scheduler: poll returned an error",
-                error=summary["error"],
-            )
-        else:
-            logger.info(
-                "Goodreads scheduler: poll complete",
-                queued=summary.get("queued", 0),
-                already_tracked=summary.get("already_tracked", 0),
-                not_found=summary.get("not_found", 0),
-                errors=summary.get("errors", 0),
-            )
+        await poll_goodreads_shelf()
     except asyncio.CancelledError:
         raise
     except Exception as exc:

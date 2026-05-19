@@ -247,15 +247,30 @@ class FreeleechBookMeta(BaseSQLModel, table=True):
     fetched_at: float = Field(default_factory=time.time)
 
 
+class GoodreadsUserConfig(BaseSQLModel, table=True):
+    """
+    Per-user Goodreads shelf RSS configuration.
+    Each user can configure their own shelf URL and auto-download preference.
+    """
+
+    __tablename__ = "goodreads_user_config"
+
+    username: str = Field(primary_key=True, foreign_key="user.username", ondelete="CASCADE")
+    rss_url: str = ""
+    auto_download: bool = True
+    last_polled: str | None = None
+
+
 class GoodreadsQueuedBook(BaseSQLModel, table=True):
     """
     Tracks books discovered via the Goodreads shelf RSS poller.
-    One row per Goodreads book_id — prevents duplicate requests across polls.
+    Composite PK (goodreads_book_id, username) — one row per book per user.
     """
 
     __tablename__ = "goodreads_queued_book"
 
     goodreads_book_id: str = Field(primary_key=True)
+    username: str = Field(primary_key=True, foreign_key="user.username", ondelete="CASCADE")
     title: str
     author: str
     queued_at: datetime = Field(
