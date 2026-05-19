@@ -9,8 +9,8 @@ No Goodreads API key required — only the public RSS feed URL.
 """
 
 import asyncio
+import html
 import re
-import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import aiohttp
@@ -33,75 +33,69 @@ _AUDIBLE_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _AUDIBLE_CONCURRENCY = asyncio.Semaphore(3)
 
 
-_UNESCAPED_AMP = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)')
-# Tags whose content is raw HTML and will break the XML parser — we don't use them
-_HTML_CONTENT_TAGS = re.compile(
-    r'<(description|body|content|content:encoded)>.*?</\1>',
-    re.DOTALL | re.IGNORECASE,
-)
+# Regex patterns for extracting fields directly from RSS text.
+# We bypass the XML parser entirely because Goodreads RSS embeds raw HTML
+# (unclosed tags, bare &, etc.) in multiple fields, making it not well-formed XML.
+_RE_ITEMS   = re.compile(r'<item\b[^>]*>(.*?)</item>', re.DOTALL | re.IGNORECASE)
+_RE_BOOK_ID = re.compile(r'<book_id>\s*(\d+)\s*</book_id>', re.IGNORECASE)
+_RE_BOOK_ID_NESTED = re.compile(r'<book\b[^>]*>.*?<id>\s*(\d+)\s*</id>', re.DOTALL | re.IGNORECASE)
+_RE_AUTHOR  = re.compile(r'<author_name>(.*?)</author_name>', re.DOTALL | re.IGNORECASE)
+_RE_TITLE_NO_SERIES = re.compile(r'<title_without_series>(.*?)</title_without_series>', re.DOTALL | re.IGNORECASE)
+_RE_BOOK_TITLE = re.compile(r'<book\b[^>]*>.*?<title>(.*?)</title>', re.DOTALL | re.IGNORECASE)
+_RE_ITEM_TITLE = re.compile(r'<title>(.*?)</title>', re.DOTALL | re.IGNORECASE)
 
 
-def _sanitise_xml(text: str) -> str:
+def _text(m: re.Match | None) -> str:  # type: ignore[type-arg]
+    """Return stripped, HTML-unescaped text from a regex match group, or ''."""
+    if m is None:
+        return ""
+    return html.unescape(m.group(1)).strip()
+
+
+def _parse_items(xml_text: str) -> list[dict]:  # type: ignore[type-arg]
     """
-    Goodreads RSS has two XML-breaking issues:
-    1. Unescaped '&' in URLs / titles — replace bare & with &amp;
-    2. <description> / <body> fields contain raw HTML with unclosed tags
-       (e.g. <br>, <img>) — strip their content entirely since we don't use them.
+    Extract book items from a Goodreads RSS feed using regex rather than an
+    XML parser.  Goodreads embeds raw HTML in several fields which makes the
+    feed not well-formed XML, so ElementTree reliably chokes on it.
+    We only need book_id, title, and author_name — all of which are plain text.
     """
-    text = _HTML_CONTENT_TAGS.sub(r'<\1/>', text)
-    return _UNESCAPED_AMP.sub("&amp;", text)
-
-
-def _parse_items(xml_text: str) -> list[dict]:
-    """
-    Parse an RSS feed and return a list of dicts with book_id, title, author.
-    Handles both <book_id> at item level and the nested <book><id> variant.
-    """
-    try:
-        root = ET.fromstring(_sanitise_xml(xml_text))
-    except ET.ParseError as exc:
-        logger.error("Goodreads poller: failed to parse RSS XML", error=str(exc))
-        return []
-
-    # Goodreads uses no namespace at the item level for custom tags
-    items = root.findall(".//item")
     results = []
-    for item in items:
-        book_id = item.findtext("book_id") or ""
+    for item_m in _RE_ITEMS.finditer(xml_text):
+        body = item_m.group(1)
+
+        # book_id — try direct tag first, then nested <book><id>
+        book_id = _text(_RE_BOOK_ID.search(body))
         if not book_id:
-            # Try nested <book><id>
-            book_el = item.find("book")
-            if book_el is not None:
-                book_id = book_el.findtext("id") or ""
+            book_id = _text(_RE_BOOK_ID_NESTED.search(body))
         if not book_id:
             continue
 
-        # author_name is a direct child of <item>
-        author = (item.findtext("author_name") or "").strip()
+        author = _text(_RE_AUTHOR.search(body))
 
-        # Title can be in <title> (sometimes formatted as "Book by Author")
-        # or in <book><title_without_series>
-        title = ""
-        book_el = item.find("book")
-        if book_el is not None:
-            title = (
-                book_el.findtext("title_without_series")
-                or book_el.findtext("title")
-                or ""
-            ).strip()
+        # Title: prefer title_without_series, then <book><title>, then <title>
+        title = (
+            _text(_RE_TITLE_NO_SERIES.search(body))
+            or _text(_RE_BOOK_TITLE.search(body))
+        )
         if not title:
-            raw_title = (item.findtext("title") or "").strip()
-            # Goodreads sometimes formats as "Title by Author"
-            if " by " in raw_title:
-                parts = raw_title.rsplit(" by ", 1)
+            raw = _text(_RE_ITEM_TITLE.search(body))
+            # Goodreads sometimes formats item title as "Book Title by Author Name"
+            if " by " in raw:
+                parts = raw.rsplit(" by ", 1)
                 title = parts[0].strip()
                 if not author:
                     author = parts[1].strip()
             else:
-                title = raw_title
+                title = raw
 
         if title:
             results.append({"book_id": book_id, "title": title, "author": author})
+            logger.debug(
+                "Goodreads poller: parsed item",
+                book_id=book_id,
+                title=title,
+                author=author,
+            )
 
     return results
 
