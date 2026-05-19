@@ -45,11 +45,19 @@ _RE_BOOK_TITLE = re.compile(r'<book\b[^>]*>.*?<title>(.*?)</title>', re.DOTALL |
 _RE_ITEM_TITLE = re.compile(r'<title>(.*?)</title>', re.DOTALL | re.IGNORECASE)
 
 
+_RE_CDATA = re.compile(r'<!\[CDATA\[(.*?)]]>', re.DOTALL)
+
+
 def _text(m: re.Match | None) -> str:  # type: ignore[type-arg]
     """Return stripped, HTML-unescaped text from a regex match group, or ''."""
     if m is None:
         return ""
-    return html.unescape(m.group(1)).strip()
+    raw = m.group(1).strip()
+    # Unwrap CDATA sections — Goodreads wraps titles in <![CDATA[...]]>
+    cdata = _RE_CDATA.search(raw)
+    if cdata:
+        raw = cdata.group(1).strip()
+    return html.unescape(raw).strip()
 
 
 def _parse_items(xml_text: str) -> list[dict]:  # type: ignore[type-arg]
