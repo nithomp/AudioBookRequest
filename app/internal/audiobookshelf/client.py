@@ -327,22 +327,26 @@ async def abs_apply_requester_tags(
     if item is None:
         item = candidates[0]
 
-    # Merge new tags without removing existing ones
-    existing_tags = set(item.media.tags)
-    new_tags = existing_tags | set(requesters)
-    if new_tags == existing_tags:
+    # Merge new tags without removing existing ones, case-insensitively.
+    # Preserve the original casing of existing tags; only add a requester
+    # username if no case-insensitive match is already present.
+    existing_tags = list(item.media.tags)
+    existing_lower = {t.lower() for t in existing_tags}
+    to_add = [r for r in requesters if r.lower() not in existing_lower]
+    if not to_add:
         logger.debug("ABS: requester tags already present", asin=asin, item_id=item.id)
         return True
+    new_tags = sorted(existing_tags + to_add)
 
     base_url = abs_config.get_base_url(session)
     assert base_url is not None
     url = posixpath.join(base_url, f"api/items/{item.id}/media")
-    logger.debug("ABS: patching item tags", url=url, item_id=item.id, tags=sorted(new_tags))
+    logger.debug("ABS: patching item tags", url=url, item_id=item.id, tags=new_tags)
     try:
         async with client_session.patch(
             url,
             headers=_headers(session),
-            json={"tags": sorted(new_tags)},
+            json={"tags": new_tags},
         ) as resp:
             if resp.ok:
                 logger.info(
