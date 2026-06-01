@@ -328,7 +328,7 @@ async def abs_apply_requester_tags(
         item = candidates[0]
 
     # Merge new tags without removing existing ones
-    existing_tags = set(item.tags)
+    existing_tags = set(item.media.tags)
     new_tags = existing_tags | set(requesters)
     if new_tags == existing_tags:
         logger.debug("ABS: requester tags already present", asin=asin, item_id=item.id)
@@ -336,7 +336,7 @@ async def abs_apply_requester_tags(
 
     base_url = abs_config.get_base_url(session)
     assert base_url is not None
-    url = posixpath.join(base_url, f"api/items/{item.id}")
+    url = posixpath.join(base_url, f"api/items/{item.id}/media")
     logger.debug("ABS: patching item tags", url=url, item_id=item.id, tags=sorted(new_tags))
     try:
         async with client_session.patch(

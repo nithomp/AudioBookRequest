@@ -26,6 +26,7 @@ class ABSBookMinified(BaseModel):
 
 class ABSBook(BaseModel):
     id: str
+    tags: list[str] = []
 
     class _Metadata(BaseModel):
         title: str | None = None
@@ -48,7 +49,6 @@ class ABSBookItem(BaseModel):
     id: str
     media: ABSBook
     mediaType: Literal["book"]
-    tags: list[str] = []
 
 
 class ABSBookItemMinified(BaseModel):
