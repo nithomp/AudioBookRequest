@@ -372,12 +372,14 @@ async def abs_sync_all_requester_tags(session: Session, client_session: ClientSe
     from app.internal.models import Audiobook
 
     if not abs_config.is_valid(session):
+        logger.debug("ABS tag sync: ABS not configured, skipping")
         return
 
     downloaded = session.exec(
         select(Audiobook).where(Audiobook.downloaded == True)  # noqa: E712
     ).all()
 
+    logger.debug("ABS tag sync: checking downloaded books", count=len(downloaded))
     for book in downloaded:
         try:
             await abs_apply_requester_tags(session, client_session, book.asin)
