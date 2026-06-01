@@ -13,13 +13,14 @@ from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.templates import catalog_response
 
-from . import downloaded, manual, sources
+from . import downloaded, goodreads, manual, sources
 
 router = APIRouter(prefix="/wishlist")
 
 router.include_router(downloaded.router)
 router.include_router(manual.router)
 router.include_router(sources.router)
+router.include_router(goodreads.router)
 
 
 @router.get("")

@@ -1,0 +1,95 @@
+{#def
+    books: list[GoodreadsQueuedBook],
+    user: DetailedUser,
+    counts: WishlistCounts,
+    update_tablist = False,
+#}
+
+<table id="goodreads-table-body" class="table table-pin-rows min-w-240">
+    {% if update_tablist %}
+        <Wishlist.Tablist page="goodreads" counts={{ counts }} />
+    {% endif %}
+
+    <thead>
+        <tr>
+            <th></th>
+            <th>Title</th>
+            <th>Author</th>
+            <th>Status</th>
+            <th>ASIN</th>
+            <th>Queued</th>
+            {% if user.is_admin() %}<th>User</th>{% endif %}
+            <th></th>
+        </tr>
+    </thead>
+
+    {% if not books %}
+        <div role="alert" class="alert my-2">
+            <span class="stroke-info h-6 w-6 shrink-0">
+                <icons.InfoCircle />
+            </span>
+            <span>
+                No Goodreads books tracked yet. Configure your shelf RSS URL in
+                <a preload class="link" href="{{ base_url }}/settings/goodreads">Settings → Goodreads</a>.
+            </span>
+        </div>
+    {% endif %}
+
+    <tbody>
+        {% for book in books %}
+            <tr id="gr-{{ book.goodreads_book_id }}-{{ book.username }}"
+                class="text-xs lg:text-sm">
+                <th>{{ loop.index }}</th>
+                <td>{{ book.title }}</td>
+                <td>{{ book.author }}</td>
+                <td>
+                    {% if book.status == 'queued' %}
+                        <span class="badge badge-success badge-sm">Queued</span>
+                    {% elif book.status == 'not_found' %}
+                        <span class="badge badge-warning badge-sm">Not found on Audible</span>
+                    {% else %}
+                        <span class="badge badge-ghost badge-sm">Pending</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if book.asin %}
+                        <a preload
+                           class="link font-mono text-xs"
+                           href="{{ base_url }}/wishlist/sources/{{ book.asin }}"
+                           title="View sources">
+                            {{ book.asin }}
+                        </a>
+                    {% else %}
+                        <span class="text-base-content/40">—</span>
+                    {% endif %}
+                </td>
+                <td class="whitespace-nowrap">
+                    {{ book.queued_at.strftime('%Y-%m-%d') if book.queued_at else '—' }}
+                </td>
+                {% if user.is_admin() %}
+                    <td>{{ book.username }}</td>
+                {% endif %}
+                <td class="flex gap-1 justify-end">
+                    {% if book.status == 'not_found' and user.is_admin() %}
+                        <button class="btn btn-sm btn-outline"
+                                title="Search Prowlarr manually"
+                                hx-post="{{ base_url }}/wishlist/goodreads/hx-search/{{ book.goodreads_book_id }}"
+                                hx-swap="none"
+                                hx-disabled-elt="this">
+                            <icons.List />
+                            Search
+                        </button>
+                    {% endif %}
+                    <button title="Remove"
+                            class="btn btn-square btn-sm"
+                            hx-delete="{{ base_url }}/wishlist/goodreads/hx-delete/{{ book.goodreads_book_id }}"
+                            hx-swap="outerHTML"
+                            hx-target="#goodreads-table-body"
+                            hx-disabled-elt="this">
+                        <icons.Ban />
+                    </button>
+                </td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>

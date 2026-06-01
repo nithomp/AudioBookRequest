@@ -31,4 +31,13 @@
             {{ counts.manual }}
         </p>
     </a>
+    <a preload
+       href="{{ base_url }}/wishlist/goodreads"
+       role="tab"
+       class="tab {% if page=='goodreads' %}tab-active{% endif %}">
+        Goodreads
+        <p class="absolute badge badge-xs right-0 top-0">
+            {{ counts.goodreads }}
+        </p>
+    </a>
 </div>

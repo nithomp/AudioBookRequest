@@ -9,6 +9,7 @@ from app.internal.models import (
     Audiobook,
     AudiobookRequest,
     AudiobookWishlistResult,
+    GoodreadsQueuedBook,
     ManualBookRequest,
     User,
 )
@@ -18,6 +19,7 @@ class WishlistCounts(BaseModel):
     requests: int
     downloaded: int
     manual: int
+    goodreads: int
 
 
 def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistCounts:
@@ -51,10 +53,17 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
         )
     ).one()
 
+    goodreads = session.exec(
+        select(func.count())
+        .select_from(GoodreadsQueuedBook)
+        .where(not username or GoodreadsQueuedBook.username == username)
+    ).one()
+
     return WishlistCounts(
         requests=requests,
         downloaded=downloaded,
         manual=manual,
+        goodreads=goodreads,
     )
 
 

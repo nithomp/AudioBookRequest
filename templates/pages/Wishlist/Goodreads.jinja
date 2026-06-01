@@ -1,0 +1,11 @@
+{#def
+    books: list[GoodreadsQueuedBook],
+    user: DetailedUser,
+    counts: WishlistCounts,
+#}
+
+<WishlistLayout title="Goodreads" user={{ user }} counts={{ counts }} page="goodreads">
+<div class="overflow-x-auto h-[75vh] border-b pb-2 border-b-base-200">
+    <Wishlist.GoodreadsWishlist books={{ books }} user={{ user }} counts={{ counts }} />
+</div>
+</WishlistLayout>
