@@ -117,6 +117,20 @@ async def _run_goodreads_poll() -> None:
     except Exception as exc:
         logger.error("Goodreads scheduler: poll failed", error=str(exc))
 
+    # Sync ABS requester tags for all downloaded books (idempotent, best-effort).
+    # This catches any books whose ABS scan completed since the last poll.
+    try:
+        from app.internal.audiobookshelf.client import abs_sync_all_requester_tags
+        with next(get_session()) as db:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as cs:
+                await abs_sync_all_requester_tags(db, cs)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("ABS tag sync: failed", error=str(exc))
+
 
 async def _freeleech_scheduler_loop() -> None:
     """

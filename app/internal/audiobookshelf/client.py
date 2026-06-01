@@ -283,6 +283,108 @@ async def abs_book_exists(
     return False
 
 
+async def abs_apply_requester_tags(
+    session: Session,
+    client_session: ClientSession,
+    asin: str,
+) -> bool:
+    """
+    Find the book in ABS and tag it with every username that has an AudiobookRequest
+    for it.  Existing tags are preserved; only new usernames are appended.
+    Returns True if tags were successfully applied.
+    """
+    from sqlmodel import select
+    from app.internal.models import AudiobookRequest, Audiobook
+
+    if not abs_config.is_valid(session):
+        return False
+
+    # Collect all requester usernames for this ASIN
+    requesters = session.exec(
+        select(AudiobookRequest.user_username).where(AudiobookRequest.asin == asin)
+    ).all()
+    if not requesters:
+        return False
+
+    # Find the book in ABS
+    book = session.get(Audiobook, asin)
+    candidates: list[ABSBookItem] = await _abs_search(session, client_session, asin)
+    if not candidates and book:
+        candidates = await _abs_search(session, client_session, book.title)
+    if not candidates:
+        logger.debug("ABS: book not yet found for tagging", asin=asin)
+        return False
+
+    # Pick the best-matching item
+    item: ABSBookItem | None = None
+    if book:
+        norm_title = _normalize(book.title)
+        for c in candidates:
+            if c.media.metadata.title and _normalize(c.media.metadata.title) == norm_title:
+                item = c
+                break
+    if item is None:
+        item = candidates[0]
+
+    # Merge new tags without removing existing ones
+    existing_tags = set(item.tags)
+    new_tags = existing_tags | set(requesters)
+    if new_tags == existing_tags:
+        logger.debug("ABS: requester tags already present", asin=asin, item_id=item.id)
+        return True
+
+    base_url = abs_config.get_base_url(session)
+    assert base_url is not None
+    url = posixpath.join(base_url, f"api/items/{item.id}")
+    try:
+        async with client_session.patch(
+            url,
+            headers=_headers(session),
+            json={"tags": sorted(new_tags)},
+        ) as resp:
+            if resp.ok:
+                logger.info(
+                    "ABS: requester tags applied",
+                    asin=asin,
+                    item_id=item.id,
+                    tags=sorted(new_tags),
+                )
+                return True
+            else:
+                logger.warning(
+                    "ABS: failed to apply tags",
+                    asin=asin,
+                    status=resp.status,
+                    reason=resp.reason,
+                )
+                return False
+    except Exception as exc:
+        logger.warning("ABS: exception applying tags", asin=asin, error=str(exc))
+        return False
+
+
+async def abs_sync_all_requester_tags(session: Session, client_session: ClientSession) -> None:
+    """
+    Idempotent sync: for every downloaded book that has requests, ensure the
+    requester usernames are present as ABS tags.  Safe to call repeatedly.
+    """
+    from sqlmodel import select
+    from app.internal.models import Audiobook
+
+    if not abs_config.is_valid(session):
+        return
+
+    downloaded = session.exec(
+        select(Audiobook).where(Audiobook.downloaded == True)  # noqa: E712
+    ).all()
+
+    for book in downloaded:
+        try:
+            await abs_apply_requester_tags(session, client_session, book.asin)
+        except Exception as exc:
+            logger.debug("ABS: tag sync error", asin=book.asin, error=str(exc))
+
+
 async def abs_mark_downloaded_flags(
     session: Session,
     client_session: ClientSession,

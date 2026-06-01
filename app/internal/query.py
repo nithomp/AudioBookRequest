@@ -8,7 +8,7 @@ from aiohttp import ClientSession
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.internal.audiobookshelf.client import abs_trigger_scan
+from app.internal.audiobookshelf.client import abs_apply_requester_tags, abs_trigger_scan
 from app.internal.audiobookshelf.config import abs_config
 from app.internal.models import Audiobook, ManualBookRequest, ProwlarrSource
 from app.internal.prowlarr.prowlarr import query_prowlarr, start_download
@@ -110,6 +110,13 @@ async def query_sources(
                 try:
                     if abs_config.is_valid(session):
                         await abs_trigger_scan(session, client_session)
+                except Exception:
+                    pass
+                # Best-effort: tag the book in ABS with requester usernames.
+                # ABS may not have scanned the file yet — the periodic background
+                # loop will retry any that are missed here.
+                try:
+                    await abs_apply_requester_tags(session, client_session, asin_or_uuid)
                 except Exception:
                     pass
             else:

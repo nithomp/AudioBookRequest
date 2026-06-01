@@ -48,6 +48,7 @@ class ABSBookItem(BaseModel):
     id: str
     media: ABSBook
     mediaType: Literal["book"]
+    tags: list[str] = []
 
 
 class ABSBookItemMinified(BaseModel):
