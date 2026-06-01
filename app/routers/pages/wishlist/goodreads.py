@@ -11,14 +11,14 @@ from app.util.templates import catalog_response
 
 router = APIRouter(prefix="/goodreads")
 
-_NOT_FOUND = "not_found"
+_VISIBLE_STATUSES = ("not_found", "not_found_tracker")
 
 
 def _get_not_found_books(session: Session, username: str | None) -> list[GoodreadsQueuedBook]:
     return session.exec(
         select(GoodreadsQueuedBook)
         .where(
-            GoodreadsQueuedBook.status == _NOT_FOUND,
+            col(GoodreadsQueuedBook.status).in_(_VISIBLE_STATUSES),
             not username or GoodreadsQueuedBook.username == username,
         )
         .order_by(GoodreadsQueuedBook.queued_at.desc())  # type: ignore[arg-type]

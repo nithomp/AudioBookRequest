@@ -41,6 +41,30 @@ async def list_sources(
         raise e
 
     if only_body:
+        # If this is a manual request with no sources, check if it came from a
+        # Goodreads not_found book and mark it as not_found_tracker.
+        if result.sources is not None and len(result.sources) == 0:
+            try:
+                import uuid as _uuid
+                uuid_obj = _uuid.UUID(asin)
+                from sqlmodel import select as _select
+                from app.internal.models import GoodreadsQueuedBook, ManualBookRequest
+                manual = session.get(ManualBookRequest, uuid_obj)
+                if manual:
+                    gr_book = session.exec(
+                        _select(GoodreadsQueuedBook).where(
+                            GoodreadsQueuedBook.title == manual.title,
+                            GoodreadsQueuedBook.username == manual.user_username,
+                            GoodreadsQueuedBook.status == "not_found",
+                        )
+                    ).first()
+                    if gr_book:
+                        gr_book.status = "not_found_tracker"
+                        session.add(gr_book)
+                        session.commit()
+            except (ValueError, Exception):
+                pass
+
         return catalog_response(
             "Wishlist.Sources.Content",
             result=result,

@@ -368,6 +368,20 @@ async def download_book(
         if book_req:
             book_req.downloaded = True
             session.add(book_req)
+
+            # If this manual request originated from a Goodreads not_found book,
+            # mark that entry as downloaded so it leaves the Goodreads wishlist.
+            from app.internal.models import GoodreadsQueuedBook
+            gr_book = session.exec(
+                select(GoodreadsQueuedBook).where(
+                    GoodreadsQueuedBook.title == book_req.title,
+                    GoodreadsQueuedBook.username == book_req.user_username,
+                )
+            ).first()
+            if gr_book:
+                gr_book.status = "downloaded"
+                session.add(gr_book)
+
             session.commit()
 
             background_task.add_task(
