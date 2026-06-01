@@ -304,6 +304,7 @@ async def abs_apply_requester_tags(
         select(AudiobookRequest.user_username).where(AudiobookRequest.asin == asin)
     ).all()
     if not requesters:
+        logger.debug("ABS: no requesters for book, skipping tag", asin=asin)
         return False
 
     # Find the book in ABS
@@ -336,6 +337,7 @@ async def abs_apply_requester_tags(
     base_url = abs_config.get_base_url(session)
     assert base_url is not None
     url = posixpath.join(base_url, f"api/items/{item.id}")
+    logger.debug("ABS: patching item tags", url=url, item_id=item.id, tags=sorted(new_tags))
     try:
         async with client_session.patch(
             url,
@@ -351,11 +353,14 @@ async def abs_apply_requester_tags(
                 )
                 return True
             else:
+                body = await resp.text()
                 logger.warning(
                     "ABS: failed to apply tags",
                     asin=asin,
+                    url=url,
                     status=resp.status,
                     reason=resp.reason,
+                    body=body[:200],
                 )
                 return False
     except Exception as exc:
