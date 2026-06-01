@@ -18,13 +18,17 @@ ABSConfigKey = Literal[
 
 
 class ABSConfig(StringConfigCache[ABSConfigKey]):
-    def is_valid(self, session: Session) -> bool:
+    def is_connected(self, session: Session) -> bool:
+        """True if ABS URL, token and library are configured (regardless of feature flags)."""
         return (
             self.get_base_url(session) is not None
             and self.get_api_token(session) is not None
             and self.get_library_id(session) is not None
-            and self.get_check_downloaded(session)
         )
+
+    def is_valid(self, session: Session) -> bool:
+        """True if ABS is connected AND the check-downloaded feature is enabled."""
+        return self.is_connected(session) and self.get_check_downloaded(session)
 
     def raise_if_invalid(self, session: Session):
         if not self.get_base_url(session):

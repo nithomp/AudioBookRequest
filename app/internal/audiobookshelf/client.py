@@ -296,7 +296,7 @@ async def abs_apply_requester_tags(
     from sqlmodel import select
     from app.internal.models import AudiobookRequest, Audiobook
 
-    if not abs_config.is_valid(session):
+    if not abs_config.is_connected(session):
         return False
 
     # Collect all requester usernames for this ASIN
@@ -371,7 +371,7 @@ async def abs_sync_all_requester_tags(session: Session, client_session: ClientSe
     from sqlmodel import select
     from app.internal.models import Audiobook
 
-    if not abs_config.is_valid(session):
+    if not abs_config.is_connected(session):
         logger.debug("ABS tag sync: ABS not configured, skipping")
         return
 
