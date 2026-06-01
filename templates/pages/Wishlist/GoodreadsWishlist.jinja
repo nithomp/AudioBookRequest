@@ -43,13 +43,7 @@
                 <td>{{ book.title }}</td>
                 <td>{{ book.author }}</td>
                 <td>
-                    {% if book.status == 'queued' %}
-                        <span class="badge badge-success badge-sm">Queued</span>
-                    {% elif book.status == 'not_found' %}
-                        <span class="badge badge-warning badge-sm">Not found on Audible</span>
-                    {% else %}
-                        <span class="badge badge-ghost badge-sm">Pending</span>
-                    {% endif %}
+                    <span class="badge badge-warning badge-sm">Not found on Audible</span>
                 </td>
                 <td>
                     {% if book.asin %}

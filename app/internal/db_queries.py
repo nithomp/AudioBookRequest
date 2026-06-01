@@ -56,7 +56,10 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
     goodreads = session.exec(
         select(func.count())
         .select_from(GoodreadsQueuedBook)
-        .where(not username or GoodreadsQueuedBook.username == username)
+        .where(
+            GoodreadsQueuedBook.status == "not_found",
+            not username or GoodreadsQueuedBook.username == username,
+        )
     ).one()
 
     return WishlistCounts(
