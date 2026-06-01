@@ -159,10 +159,15 @@ async def query_prowlarr(
     force_refresh: bool = False,
     only_return_if_cached: bool = False,
 ) -> list[ProwlarrSource] | None:
-    # Include the first author in the query so short/generic titles (e.g. "Lost")
-    # don't flood results with unrelated books. Prowlarr handles extra terms fine.
-    author_suffix = f" {book.authors[0]}" if book.authors else ""
-    query = f"{book.title}{author_suffix}"
+    # For short/ambiguous titles (4 words or fewer, e.g. "Lost"), append the
+    # first author so Prowlarr doesn't flood results with unrelated books.
+    # For longer, specific titles the title alone is sufficient and adding an
+    # author can over-constrain the query and return zero results.
+    title_words = len(book.title.split())
+    if book.authors and title_words <= 4:
+        query = f"{book.title} {book.authors[0]}"
+    else:
+        query = book.title
 
     base_url = prowlarr_config.get_base_url(session)
     api_key = prowlarr_config.get_api_key(session)
